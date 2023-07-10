@@ -57,7 +57,7 @@
 #define MINUTE(t)      ((t / 60) % 60)
 #define CONFIG_FILE    "sb/config"
 #define RESTARTSIG     SIGUSR1
-#define OUTPUT_MAX     27
+#define OUTPUT_MAX     32
 #define CMDLENGTH      (OUTPUT_MAX + STRLEN(delim))
 #define STATUSLENGTH   (LENGTH(blocks) * CMDLENGTH + 1)
 
@@ -115,10 +115,13 @@ static Block blocks[] = {
 	{ "date",       date,       0, 3600,  },
 	{ "time",       sb_time,    1, 60,    },
 };
-static char delim[] = " \03|\01 ";
+
+static const char delim[] = " " BLUE "|" NORM " ";
 
 #if BASE == 1000
-static const char *prefix[] = { "", "k", "M", "G", "T", "P", "E", "Z", "Y" };
+static const char *prefix[] = {
+	"", "k", "M", "G", "T", "P", "E", "Z", "Y"
+};
 #elif BASE == 1024
 static const char *prefix[] = {
 	"", "Ki", "Mi", "Gi", "Ti", "Pi", "Ei", "Zi", "Yi"
@@ -153,7 +156,7 @@ ltime(void)
 	return time(NULL) + tz;
 }
 
-/* return -1 on failure, truncation is not a failure */
+/* return -1 on failure and warn about truncation (which is also a failure) */
 int
 xsnprintf(char *str, size_t siz, const char *fmt, ...)
 {
@@ -169,6 +172,7 @@ xsnprintf(char *str, size_t siz, const char *fmt, ...)
 		return -1;
 	} else if ((size_t)rv >= siz) {
 		warnx("snprintf: String truncation");
+		return -1;
 	}
 
 	return rv;
@@ -232,7 +236,7 @@ music(char *output)
 			return -1;
 		}
 		if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-			warn("connect '%s'", addr.sun_path);
+			/* warn("connect '%s'", addr.sun_path); */
 			close(fd);
 			return -1;
 		}
@@ -242,7 +246,7 @@ music(char *output)
 			return -1;
 		}
 		if ((len = recv(fd, buf, STRLEN(buf), MSG_PEEK)) < 0) {
-			warn("recv");
+			/* warn("recv"); */
 			close(fd);
 			return -1;
 		}
@@ -254,16 +258,17 @@ music(char *output)
 		}
 
 		start = buf + STRLEN("{\"data\":\"");
-		end = strchr(start, '"');
-		if (end)
-			*end = '\0';
-		if (i == 0)
-			pause = (strcmp(start, "yes") == 0);
+		if (i == 0) {
+			pause = (strncmp(start, "yes", STRLEN("yes")) == 0);
+		} else {
+			end = strchr(start, ',');
+			if (end) *(end - 1) = '\0';
+		}
 	}
 
 	/* don't warn about truncation */
 	if (pause)
-		return snprintf(output, OUTPUT_MAX, " %s", start);
+		return snprintf(output, OUTPUT_MAX, MAGENTA" %s"NORM, start);
 	return snprintf(output, OUTPUT_MAX, " %s", start);
 }
 
@@ -375,7 +380,7 @@ battery(char *output)
 	}
 	fclose(fp);
 
-	charging = (strcmp(status, "Charging") == 0);
+	charging = (strcmp(status, "Charging\n") == 0);
 	icon = icons[(capacity / 10) + (charging * LENGTH(icons) / 2)];
 	color = charging ? NORM : "";
 
@@ -390,17 +395,9 @@ battery(char *output)
 			color = RED;
 	}
 
-	if (charging) {
-		if (capacity >= 99) {
-			execlp("notify-send", "notify-send", "󰂅 Battery full",
-			       NULL);
-		}
+	if (charging)
 		return xsnprintf(output, OUTPUT_MAX, YELLOW"%s %s%d%%"NORM,
 		                 icon, color, capacity);
-	}
-
-	if (capacity <= 15)
-		execlp("notify-send", "notify-send", "󰁺 Battery low", NULL);
 	return xsnprintf(output, OUTPUT_MAX, "%s %s%d%%"NORM,
 	                 icon, color, capacity);
 }
@@ -471,8 +468,8 @@ netspeed(char *output)
 	double drx, dtx;
 	size_t i, j;
 
-	if (interface[0] == 0) {
-		FILE * fp;
+	if (tx == 0 && rx == 0) {
+		FILE *fp;
 		char buf[4], *p;
 
 		if ((fp = fopen(WIFI_OPERSTATE, "r")) != NULL) {
@@ -492,17 +489,11 @@ netspeed(char *output)
 
 	tmprx = rx;
 	xsnprintf(path, sizeof(path), NETSPEED_RX, interface);
-	if ((rx = fgetsn(path)) < 0) {
-		rx = 0;
+	if ((rx = fgetsn(path)) < 0)
 		return -1;
-	}
 	tmptx = tx;
 	xsnprintf(path, sizeof(path), NETSPEED_TX, interface);
-	if ((tx = fgetsn(path)) < 0) {
-		tx = 0;
-		return -1;
-	}
-	if (rx == 0 || tx == 0)
+	if ((tx = fgetsn(path)) < 0)
 		return -1;
 
 	drx = rx - tmprx;
@@ -512,7 +503,8 @@ netspeed(char *output)
 	for (j = 0; j < LENGTH(prefix) && dtx >= BASE; j++)
 		dtx /= BASE;
 
-	return xsnprintf(output, OUTPUT_MAX, " %.1f%s%s %.1f%s",
+	return xsnprintf(output, OUTPUT_MAX,
+	                 BLUE "" NORM " %.1f%s%s" ORANGE "" NORM " %.1f%s",
 	                 drx, prefix[i], delim, dtx, prefix[j]);
 }
 
@@ -520,8 +512,8 @@ int
 localip(char *output)
 {
 	struct ifaddrs *ifaddr, *ifa;
-	int s;
 	char host[NI_MAXHOST];
+	int s;
 
 	if (getifaddrs(&ifaddr) < 0) {
 		warn("getifaddrs");

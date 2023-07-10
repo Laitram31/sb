@@ -2,11 +2,15 @@ sb
 ==
 Asynchronous modular status bar for dwm written in C
 
+![image](/sb.png)
+
 Notes
 -----
 - If you don't use [this build of dwm](https://github.com/ratakor/dwm) you will
 need [this patch](https://gist.github.com/Ratakor/1a2ebc9a690dea31c19ac419e9e14138)
-for the colors to work with dwm.
+for the colors to work with dwm. Also you might want to use
+[this font](https://github.com/Ratakor/dotfiles/raw/master/.local/share/fonts/agave%20regular%20Nerd%20Font%20Complete%20Mono.ttf)
+as fallback as it supports all the icons.
 
 - sb can be configured on the fly with a config file located in
 `$XDG_CONFIG_HOME/sb/config` (if XDG_CONFIG_HOME is not set,
