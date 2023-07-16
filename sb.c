@@ -131,8 +131,8 @@ static const char *prefix[] = {
 static Display *dpy;
 static pthread_t thr[LENGTH(blocks)];
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-static char statusbar[LENGTH(blocks)][CMDLENGTH];
-static char statusstr[STATUSLENGTH];
+static char statusbuf[LENGTH(blocks)][CMDLENGTH];
+static char statusbar[STATUSLENGTH];
 static volatile sig_atomic_t running;
 static volatile sig_atomic_t restart;
 
@@ -266,7 +266,7 @@ music(char *output)
 		}
 	}
 
-	/* don't warn about truncation */
+	/* use snprintf to not fail on truncation */
 	if (pause)
 		return snprintf(output, OUTPUT_MAX, MAGENTA" %s"NORM, start);
 	return snprintf(output, OUTPUT_MAX, " %s", start);
@@ -468,6 +468,7 @@ netspeed(char *output)
 	double drx, dtx;
 	size_t i, j;
 
+	/* TODO: refactor that */
 	if (tx == 0 && rx == 0) {
 		FILE *fp;
 		char buf[4], *p;
@@ -631,7 +632,7 @@ daypercent(char *output)
 	int percent;
 
 	t = ltime();
-	percent = ((HOUR(t) * 60 + MINUTE(t)) * 100) / (60 * 24);
+	percent = ((HOUR(t) * 60 + MINUTE(t)) * 100) / 1440;
 
 	return xsnprintf(output, OUTPUT_MAX, " %d%%", percent);
 }
@@ -673,26 +674,27 @@ run(Block *block)
 	char output[CMDLENGTH] = "";
 	size_t len, i = block - blocks;
 
-	if ((len = block->func(output)) <= 0)
+	if ((len = block->func(output)) < 0)
 		return;
 
-	len = len > OUTPUT_MAX ? OUTPUT_MAX - 1 : len;
-	len = output[len - 1] == '\n' ? len - 1 : len;
+	if (len >= OUTPUT_MAX)
+		len = OUTPUT_MAX - 1;
 	strcpy(output + len, delim);
+	len += STRLEN(delim);
 
 	pthread_mutex_lock(&mutex);
-	if (strcmp(output, statusbar[i]) == 0) {
+	if (strcmp(output, statusbuf[i]) == 0) {
 		pthread_mutex_unlock(&mutex);
 		return;
 	}
 
-	memcpy(statusbar[i], output, len + STRLEN(delim));
-	statusbar[i][len + STRLEN(delim)] = '\0';
-	statusstr[0] = '\0';
+	memcpy(statusbuf[i], output, len);
+	statusbuf[i][len] = '\0';
+	statusbar[0] = '\0';
 	for (i = 0; i < LENGTH(blocks); i++)
-		strcat(statusstr, statusbar[i]);
-	statusstr[strlen(statusstr) - STRLEN(delim)] = '\0';
-	XStoreName(dpy, DefaultRootWindow(dpy), statusstr);
+		strcat(statusbar, statusbuf[i]);
+	statusbar[strlen(statusbar) - STRLEN(delim)] = '\0';
+	XStoreName(dpy, DefaultRootWindow(dpy), statusbar);
 	XSync(dpy, False);
 	pthread_mutex_unlock(&mutex);
 }
@@ -722,7 +724,7 @@ statusloop(void)
 	pthread_attr_init(&attr);
 	pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
 	for (i = 0; i < LENGTH(blocks); i++) {
-		statusbar[i][0] = '\0';
+		statusbuf[i][0] = '\0';
 		if (blocks[i].active)
 			pthread_create(thr + i, &attr, blockloop, blocks + i);
 	}
