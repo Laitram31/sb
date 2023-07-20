@@ -1,6 +1,7 @@
 PREFIX  ?= /usr/local
-CFLAGS  += -std=c99 -pedantic -D_DEFAULT_SOURCE -O3
-LDFLAGS += -s -lX11 -lconfig -pthread
+
+CFLAGS  += -std=c99 -pedantic -Wall -Werror -D_DEFAULT_SOURCE
+LDFLAGS += -s -lX11 -lconfig -lpthread
 
 all: sb
 

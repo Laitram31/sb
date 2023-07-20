@@ -1,12 +1,5 @@
 /* Copywrong © 2023 Ratakor. See LICENSE file for license details. */
 
-#include <X11/Xlib.h>
-#include <libconfig.h>
-#include <linux/wireless.h>
-#include <sys/ioctl.h>
-#include <sys/socket.h>
-#include <sys/un.h>
-
 #include <err.h>
 #include <ifaddrs.h>
 #include <limits.h>
@@ -20,10 +13,16 @@
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
+#include <sys/ioctl.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <linux/wireless.h>
+#include <X11/Xlib.h>
+#include <libconfig.h>
 
 #define BATTERY        "BAT0"
-#define ETH_INTERFACE  "eth0"
-#define WIFI_INTERFACE "wlan0"
+#define ETH            "eth0"
+#define WIFI           "wlan0"
 #define THERMAL_ZONE   "thermal_zone0"
 #define BASE           1000
 
@@ -35,9 +34,9 @@
 #define CAPACITY_PATH  "/sys/class/power_supply/" BATTERY "/capacity"
 #define STATUS_PATH    "/sys/class/power_supply/" BATTERY "/status"
 #define CPUTEMP_PATH   "/sys/devices/virtual/thermal/" THERMAL_ZONE "/temp"
-#define WIFI_OPERSTATE "/sys/class/net/" WIFI_INTERFACE "/operstate"
-#define NETSPEED_RX    "/sys/class/net/%s/statistics/rx_bytes"
-#define NETSPEED_TX    "/sys/class/net/%s/statistics/tx_bytes"
+#define OPERSTATE(X)   "/sys/class/net/" X "/operstate"
+#define NETSPEED_RX(X) "/sys/class/net/" X "/statistics/rx_bytes"
+#define NETSPEED_TX(X) "/sys/class/net/" X "/statistics/tx_bytes"
 #define MUSIC_PAUSE    "{\"command\":[\"get_property_string\",\"pause\"]}\n"
 #define MUSIC_TITLE    "{\"command\":[\"get_property\",\"media-title\"]}\n"
 
@@ -183,17 +182,16 @@ int
 execcmd(char *output, size_t siz, const char *cmd)
 {
 	FILE *fp;
-	char *rv;
 
-	fp = popen(cmd, "r");
-	if (fp == NULL) {
+	if ((fp = popen(cmd, "r")) == NULL) {
 		warn("popen '%s'", cmd);
 		return -1;
 	}
-	rv = fgets(output, siz, fp);
-	pclose(fp);
-	if (rv == NULL)
+	if (fgets(output, siz, fp) == NULL) {
+		pclose(fp);
 		return -1;
+	}
+	pclose(fp);
 
 	return 0;
 }
@@ -203,7 +201,7 @@ intmax_t
 fgetsn(const char *path)
 {
 	FILE *fp;
-	char buf[32] = "";
+	char buf[32];
 
 	if ((fp = fopen(path, "r")) == NULL) {
 		warn("fopen '%s'", path);
@@ -364,7 +362,7 @@ battery(char *output)
 	};
 	const char *icon, *color;
 	FILE *fp;
-	char status[32] = "";
+	char status[32];
 	int capacity, charging;
 
 	if ((capacity = fgetsn(CAPACITY_PATH)) < 0)
@@ -407,7 +405,7 @@ wifi(char *output)
 {
 	char ssid[IW_ESSID_MAX_SIZE + 1] = "";
 	const struct iwreq wreq = {
-		.ifr_name = WIFI_INTERFACE,
+		.ifr_name = WIFI,
 		.u.essid.length = sizeof(ssid),
 		.u.essid.pointer = ssid
 	};
@@ -415,14 +413,14 @@ wifi(char *output)
 	char buf[128], *p;
 	int i, fd, quality;
 
-	if ((fp = fopen(WIFI_OPERSTATE, "r")) == NULL) {
-		warn("fopen '%s'", WIFI_OPERSTATE);
+	if ((fp = fopen(OPERSTATE(WIFI), "r")) == NULL) {
+		warn("fopen '%s'", OPERSTATE(WIFI));
 		return -1;
 	}
 	p = fgets(buf, sizeof(buf), fp);
 	fclose(fp);
 	if (p == NULL || strcmp(buf, "up\n") != 0)
-		return snprintf(output, OUTPUT_MAX, "󰤯");
+		return xsnprintf(output, OUTPUT_MAX, "󰤯");
 	if ((fp = fopen("/proc/net/wireless", "r")) == NULL) {
 		warn("fopen '/proc/net/wireless'");
 		return -1;
@@ -433,9 +431,9 @@ wifi(char *output)
 			break;
 	}
 	fclose(fp);
-	if (i != 3 || p == NULL || (p = strstr(buf, WIFI_INTERFACE)) == NULL)
+	if (i != 3 || p == NULL || (p = strstr(buf, WIFI)) == NULL)
 		return -1;
-	p += sizeof(WIFI_INTERFACE) + 1;
+	p += sizeof(WIFI) + 1;
 	if (sscanf(p, "%*d %d %*d", &quality) != 1)
 		return -1;
 	quality = (float)quality / 70 * 100;
@@ -452,49 +450,53 @@ wifi(char *output)
 	close(fd);
 
 	if (quality >= 70)
-		return snprintf(output, OUTPUT_MAX, "󰤨 %s", ssid);
+		return xsnprintf(output, OUTPUT_MAX, "󰤨 %s", ssid);
 	if (quality >= 30)
-		return snprintf(output, OUTPUT_MAX, "󰤢 %s", ssid);
-	return snprintf(output, OUTPUT_MAX, "󰤟 %s", ssid);
+		return xsnprintf(output, OUTPUT_MAX, "󰤢 %s", ssid);
+	return xsnprintf(output, OUTPUT_MAX, "󰤟 %s", ssid);
 }
 
 int
 netspeed(char *output)
 {
 	static intmax_t rx, tx;
-	static char interface[16];
-	char path[sizeof(NETSPEED_RX) + sizeof(interface)];
+	static const char *pathrx, *pathtx;
 	intmax_t tmprx, tmptx;
 	double drx, dtx;
 	size_t i, j;
 
-	/* TODO: refactor that */
 	if (tx == 0 && rx == 0) {
 		FILE *fp;
 		char buf[4], *p;
 
-		if ((fp = fopen(WIFI_OPERSTATE, "r")) != NULL) {
-			p = fgets(buf, sizeof(buf), fp);
-			fclose(fp);
-			if (p == NULL || strcmp(buf, "up\n") != 0) {
-				xsnprintf(interface, sizeof(interface),
-				          ETH_INTERFACE);
-			} else {
-				xsnprintf(interface, sizeof(interface),
-				          WIFI_INTERFACE);
+		do {
+			if ((fp = fopen(OPERSTATE(WIFI), "r")) != NULL) {
+				p = fgets(buf, sizeof(buf), fp);
+				fclose(fp);
+				if (p != NULL && strcmp(buf, "up\n") == 0) {
+					pathrx = NETSPEED_RX(WIFI);
+					pathtx = NETSPEED_TX(WIFI);
+					break;
+				}
 			}
-		} else {
-			xsnprintf(interface, sizeof(interface), ETH_INTERFACE);
-		}
+			if ((fp = fopen(OPERSTATE(ETH), "r")) != NULL) {
+				p = fgets(buf, sizeof(buf), fp);
+				fclose(fp);
+				if (p != NULL && strcmp(buf, "up\n") == 0) {
+					pathrx = NETSPEED_RX(ETH);
+					pathtx = NETSPEED_TX(ETH);
+					break;
+				}
+			}
+			return -1;
+		} while (0);
 	}
 
 	tmprx = rx;
-	xsnprintf(path, sizeof(path), NETSPEED_RX, interface);
-	if ((rx = fgetsn(path)) < 0)
-		return -1;
 	tmptx = tx;
-	xsnprintf(path, sizeof(path), NETSPEED_TX, interface);
-	if ((tx = fgetsn(path)) < 0)
+	if ((rx = fgetsn(pathrx)) < 0)
+		return -1;
+	if ((tx = fgetsn(pathtx)) < 0)
 		return -1;
 
 	drx = rx - tmprx;
@@ -528,8 +530,8 @@ localip(char *output)
 		s = getnameinfo(ifa->ifa_addr, sizeof(struct sockaddr_in6),
 		                host, NI_MAXHOST, NULL, 0, NI_NUMERICHOST);
 		if ((ifa->ifa_addr->sa_family == AF_INET) &&
-		                (strcmp(ifa->ifa_name, ETH_INTERFACE) == 0 ||
-		                 strcmp(ifa->ifa_name, WIFI_INTERFACE) == 0)) {
+		                (strcmp(ifa->ifa_name, ETH) == 0 ||
+		                 strcmp(ifa->ifa_name, WIFI) == 0)) {
 			freeifaddrs(ifaddr);
 			if (s != 0) {
 				warnx("getnameinfo: %s", gai_strerror(s));
@@ -665,7 +667,8 @@ sb_time(char *output)
 		return xsnprintf(output, OUTPUT_MAX, RED" %02d:%02d"NORM,
 		                 HOUR(t), MINUTE(t));
 	}
-	return xsnprintf(output, OUTPUT_MAX, " %02d:%02d", HOUR(t), MINUTE(t));
+	return xsnprintf(output, OUTPUT_MAX, " %02d:%02d",
+	                 HOUR(t), MINUTE(t));
 }
 
 void
@@ -768,7 +771,8 @@ getcfg(void)
 		env = getenv("HOME");
 		if (env == NULL)
 			errx(1, "HOME is not defined");
-		xsnprintf(path, sizeof(path), "%s/.config/%s", env, CONFIG_FILE);
+		xsnprintf(path, sizeof(path), "%s/.config/%s",
+		          env, CONFIG_FILE);
 	}
 
 	if ((fp = fopen(path, "r")) == NULL) {
