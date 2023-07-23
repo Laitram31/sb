@@ -19,6 +19,7 @@
 #include <linux/wireless.h>
 #include <X11/Xlib.h>
 #include <libconfig.h>
+#include "icons.h"
 
 #define BATTERY        "BAT0"
 #define ETH            "eth0"
@@ -37,7 +38,7 @@
 #define OPERSTATE(X)   "/sys/class/net/" X "/operstate"
 #define NETSPEED_RX(X) "/sys/class/net/" X "/statistics/rx_bytes"
 #define NETSPEED_TX(X) "/sys/class/net/" X "/statistics/tx_bytes"
-#define MUSIC_PAUSE    "{\"command\":[\"get_property_string\",\"pause\"]}\n"
+// #define MUSIC_PAUSE    "{\"command\":[\"get_property_string\",\"pause\"]}\n"
 #define MUSIC_TITLE    "{\"command\":[\"get_property\",\"media-title\"]}\n"
 
 #define NORM           "\x1"
@@ -266,8 +267,8 @@ music(char *output)
 
 	/* use snprintf to not fail on truncation */
 	if (pause)
-		return snprintf(output, OUTPUT_MAX, MAGENTA" %s"NORM, start);
-	return snprintf(output, OUTPUT_MAX, " %s", start);
+		return snprintf(output, OUTPUT_MAX, MAGENTA MUSIC_PAUSE" %s"NORM, start);
+	return snprintf(output, OUTPUT_MAX, MUSIC_PLAY" %s", start);
 }
 
 int
@@ -281,8 +282,8 @@ cputemp(char *output)
 
 	temp /= 1000;
 	if (temp >= 70)
-		return xsnprintf(output, OUTPUT_MAX, RED" %02d°C"NORM, temp);
-	return xsnprintf(output, OUTPUT_MAX, " %02d°C", temp);
+		return xsnprintf(output, OUTPUT_MAX, RED TEMP_FIRE" %02d°C"NORM, temp);
+	return xsnprintf(output, OUTPUT_MAX, TEMP" %02d°C", temp);
 }
 
 int
@@ -313,7 +314,7 @@ cpu(char *output)
 	if (sum == 0)
 		return -1;
 
-	return xsnprintf(output, OUTPUT_MAX, " %d%%", (int)(100 *
+	return xsnprintf(output, OUTPUT_MAX, CPU" %d%%", (int)(100 *
 	                 ((b[0] + b[1] + b[2] + b[5] + b[6]) -
 	                  (a[0] + a[1] + a[2] + a[5] + a[6])) / sum));
 }
@@ -349,7 +350,7 @@ memory(char *output)
 	for (j = 0; j < LENGTH(prefix) && dtotal >= BASE; j++)
 		dtotal /= BASE;
 
-	return xsnprintf(output, OUTPUT_MAX, "ﳔ %.1f%s/%.1f%s",
+	return xsnprintf(output, OUTPUT_MAX, RAM" %.1f%s/%.1f%s",
 	                 used, prefix[i], dtotal, prefix[j]);
 }
 
@@ -420,7 +421,7 @@ wifi(char *output)
 	p = fgets(buf, sizeof(buf), fp);
 	fclose(fp);
 	if (p == NULL || strcmp(buf, "up\n") != 0)
-		return xsnprintf(output, OUTPUT_MAX, "󰤯");
+		return xsnprintf(output, OUTPUT_MAX, NO_WIFI);
 	if ((fp = fopen("/proc/net/wireless", "r")) == NULL) {
 		warn("fopen '/proc/net/wireless'");
 		return -1;
@@ -450,10 +451,10 @@ wifi(char *output)
 	close(fd);
 
 	if (quality >= 70)
-		return xsnprintf(output, OUTPUT_MAX, "󰤨 %s", ssid);
+		return xsnprintf(output, OUTPUT_MAX, WIFI_FULL" %s", ssid);
 	if (quality >= 30)
-		return xsnprintf(output, OUTPUT_MAX, "󰤢 %s", ssid);
-	return xsnprintf(output, OUTPUT_MAX, "󰤟 %s", ssid);
+		return xsnprintf(output, OUTPUT_MAX, WIFI_AVG" %s", ssid);
+	return xsnprintf(output, OUTPUT_MAX, WIFI_BAD" %s", ssid);
 }
 
 int
@@ -507,7 +508,7 @@ netspeed(char *output)
 		dtx /= BASE;
 
 	return xsnprintf(output, OUTPUT_MAX,
-	                 BLUE "" NORM " %.1f%s%s" ORANGE "" NORM " %.1f%s",
+	                 BLUE ARROW_DOWN NORM " %.1f%s%s" ORANGE ARROW_UP NORM " %.1f%s",
 	                 drx, prefix[i], delim, dtx, prefix[j]);
 }
 
@@ -537,7 +538,7 @@ localip(char *output)
 				warnx("getnameinfo: %s", gai_strerror(s));
 				return -1;
 			}
-			return xsnprintf(output, OUTPUT_MAX, "ﯱ %s", host);
+			return xsnprintf(output, OUTPUT_MAX, NETWORK" %s", host);
 		}
 	}
 
@@ -553,7 +554,7 @@ publicip(char *output)
 	if (execcmd(buf, sizeof(buf), "curl -s " PUBLICIP_URL) < 0)
 		return -1;
 
-	return xsnprintf(output, OUTPUT_MAX, " %s", buf);
+	return xsnprintf(output, OUTPUT_MAX, PERSON" %s", buf);
 }
 
 int
@@ -568,8 +569,8 @@ volume(char *output)
 	vol = atof(buf + STRLEN("Volume: ")) * 100;
 
 	if (strstr(buf, "MUTED"))
-		return xsnprintf(output, OUTPUT_MAX, CYAN" %d%%"NORM, vol);
-	return xsnprintf(output, OUTPUT_MAX, " %d%%", vol);
+		return xsnprintf(output, OUTPUT_MAX, CYAN VOL_MUTE" %d%%"NORM, vol);
+	return xsnprintf(output, OUTPUT_MAX, VOL_ON" %d%%", vol);
 }
 
 int
@@ -581,8 +582,8 @@ mic(char *output)
 		return -1;
 
 	if (strstr(buf, "MUTED"))
-		return xsnprintf(output, OUTPUT_MAX, ORANGE""NORM);
-	return xsnprintf(output, OUTPUT_MAX, "");
+		return xsnprintf(output, OUTPUT_MAX, ORANGE MIC_OFF NORM);
+	return xsnprintf(output, OUTPUT_MAX, MIC_ON);
 }
 
 int
@@ -595,7 +596,7 @@ news(char *output)
 	if (buf[0] == 'E')
 		return -1;
 
-	return xsnprintf(output, OUTPUT_MAX, "📰 %d", atoi(buf));
+	return xsnprintf(output, OUTPUT_MAX, NEWSPAPER" %d", atoi(buf));
 }
 
 int
@@ -636,7 +637,7 @@ daypercent(char *output)
 	t = ltime();
 	percent = ((HOUR(t) * 60 + MINUTE(t)) * 100) / 1440;
 
-	return xsnprintf(output, OUTPUT_MAX, " %d%%", percent);
+	return xsnprintf(output, OUTPUT_MAX, TOUCHGRASS" %d%%", percent);
 }
 
 int
@@ -646,7 +647,7 @@ date(char *output)
 	size_t rv;
 
 	t = ltime();
-	rv = strftime(output, OUTPUT_MAX, " %b %d (%a)", gmtime(&t));
+	rv = strftime(output, OUTPUT_MAX, CALENDAR " %b %d (%a)", gmtime(&t));
 	if (rv == 0) {
 		warnx("strftime: String truncation");
 		return -1;
@@ -661,13 +662,13 @@ sb_time(char *output)
 
 	t = ltime();
 	if (HOUR(t) >= 22) {
-		return xsnprintf(output, OUTPUT_MAX, ORANGE" %02d:%02d"NORM,
+		return xsnprintf(output, OUTPUT_MAX, ORANGE CLOCK" %02d:%02d"NORM,
 		                 HOUR(t), MINUTE(t));
 	} else if (HOUR(t) <= 5) {
-		return xsnprintf(output, OUTPUT_MAX, RED" %02d:%02d"NORM,
+		return xsnprintf(output, OUTPUT_MAX, RED CLOCK" %02d:%02d"NORM,
 		                 HOUR(t), MINUTE(t));
 	}
-	return xsnprintf(output, OUTPUT_MAX, " %02d:%02d",
+	return xsnprintf(output, OUTPUT_MAX, CLOCK" %02d:%02d",
 	                 HOUR(t), MINUTE(t));
 }
 
